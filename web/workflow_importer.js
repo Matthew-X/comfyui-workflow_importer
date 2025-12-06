@@ -6,7 +6,10 @@
  */
 
 import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
+
+// Known metadata keys used by different ComfyUI versions
+const WORKFLOW_KEYS = ["workflow", "Workflow", "comfyui_workflow", "ComfyUI_Workflow"];
+const PROMPT_KEYS = ["prompt", "Prompt", "comfyui_prompt", "ComfyUI_Prompt"];
 
 /**
  * Dialog for importing workflows from images
@@ -262,41 +265,187 @@ class WorkflowImportDialog {
     }
 
     /**
-     * Extract workflow directly from image file data without uploading
+     * Extract workflow directly from image file data (client-side PNG metadata parsing)
      */
     async extractWorkflowFromData(file) {
         try {
-            const formData = new FormData();
-            formData.append("image", file);
-
-            // Call our extraction API endpoint that accepts image data directly
-            const response = await api.fetchApi("/workflow_importer/extract_from_data", {
-                method: "POST",
-                body: formData
-            });
-
-            if (!response.ok) {
-                throw new Error(`Extraction failed: ${response.status}`);
+            const arrayBuffer = await file.arrayBuffer();
+            const metadata = await this.extractPngMetadata(new Uint8Array(arrayBuffer));
+            
+            if (!metadata || Object.keys(metadata).length === 0) {
+                return { success: false, error: "No metadata found in image" };
             }
-
-            const result = await response.json();
-
-            if (!result.success) {
-                return { 
-                    success: false, 
-                    error: result.error || "No workflow found in image" 
-                };
+            
+            // Extract workflow
+            let workflow = null;
+            for (const key of WORKFLOW_KEYS) {
+                if (metadata[key]) {
+                    try {
+                        workflow = JSON.parse(metadata[key]);
+                        break;
+                    } catch (e) {
+                        continue;
+                    }
+                }
             }
-
+            
+            // Extract prompt
+            let prompt = null;
+            for (const key of PROMPT_KEYS) {
+                if (metadata[key]) {
+                    try {
+                        prompt = JSON.parse(metadata[key]);
+                        break;
+                    } catch (e) {
+                        continue;
+                    }
+                }
+            }
+            
+            if (!workflow && !prompt) {
+                // Check for A1111 parameters
+                if (metadata["parameters"] || metadata["Parameters"]) {
+                    return { 
+                        success: false, 
+                        error: "Image contains Automatic1111 parameters, not ComfyUI workflow" 
+                    };
+                }
+                return { success: false, error: "No ComfyUI workflow found in image" };
+            }
+            
             return {
                 success: true,
-                workflow: result.workflow,
-                prompt: result.prompt,
-                info: result.info
+                workflow: workflow,
+                prompt: prompt
             };
         } catch (err) {
             return { success: false, error: `Extraction failed: ${err.message}` };
         }
+    }
+
+    /**
+     * Parse PNG file and extract tEXt/iTXt chunks containing metadata
+     */
+    async extractPngMetadata(data) {
+        const metadata = {};
+        
+        // Verify PNG signature
+        const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+        for (let i = 0; i < 8; i++) {
+            if (data[i] !== pngSignature[i]) {
+                return metadata; // Not a valid PNG
+            }
+        }
+        
+        let offset = 8; // Skip PNG signature
+        
+        while (offset < data.length) {
+            // Read chunk length (4 bytes, big-endian)
+            const length = (data[offset] << 24) | (data[offset + 1] << 16) | 
+                          (data[offset + 2] << 8) | data[offset + 3];
+            offset += 4;
+            
+            // Read chunk type (4 bytes)
+            const type = String.fromCharCode(data[offset], data[offset + 1], 
+                                             data[offset + 2], data[offset + 3]);
+            offset += 4;
+            
+            if (type === "tEXt") {
+                // tEXt chunk: keyword\0value
+                const chunkData = data.slice(offset, offset + length);
+                const nullIndex = chunkData.indexOf(0);
+                if (nullIndex !== -1) {
+                    const keyword = new TextDecoder("latin1").decode(chunkData.slice(0, nullIndex));
+                    const value = new TextDecoder("latin1").decode(chunkData.slice(nullIndex + 1));
+                    metadata[keyword] = value;
+                }
+            } else if (type === "iTXt") {
+                // iTXt chunk: keyword\0compression_flag\0compression_method\0language_tag\0translated_keyword\0text
+                const chunkData = data.slice(offset, offset + length);
+                let pos = 0;
+                
+                // Find keyword
+                const keywordEnd = chunkData.indexOf(0, pos);
+                if (keywordEnd === -1) {
+                    offset += length + 4; // Skip to next chunk
+                    continue;
+                }
+                const keyword = new TextDecoder("utf-8").decode(chunkData.slice(pos, keywordEnd));
+                pos = keywordEnd + 1;
+                
+                // Compression flag and method
+                const compressionFlag = chunkData[pos];
+                pos += 2; // Skip compression flag and method
+                
+                // Skip language tag
+                const langEnd = chunkData.indexOf(0, pos);
+                if (langEnd === -1) {
+                    offset += length + 4;
+                    continue;
+                }
+                pos = langEnd + 1;
+                
+                // Skip translated keyword
+                const transEnd = chunkData.indexOf(0, pos);
+                if (transEnd === -1) {
+                    offset += length + 4;
+                    continue;
+                }
+                pos = transEnd + 1;
+                
+                // Get text content
+                let text;
+                if (compressionFlag === 1) {
+                    // Compressed with zlib - use DecompressionStream
+                    try {
+                        const compressed = chunkData.slice(pos);
+                        text = await this.decompressZlib(compressed);
+                    } catch (e) {
+                        // Fallback: try uncompressed
+                        text = new TextDecoder("utf-8").decode(chunkData.slice(pos));
+                    }
+                } else {
+                    text = new TextDecoder("utf-8").decode(chunkData.slice(pos));
+                }
+                
+                metadata[keyword] = text;
+            } else if (type === "IEND") {
+                break; // End of PNG
+            }
+            
+            offset += length + 4; // Skip chunk data and CRC
+        }
+        
+        return metadata;
+    }
+
+    /**
+     * Decompress zlib-compressed data using DecompressionStream API
+     */
+    async decompressZlib(compressed) {
+        const ds = new DecompressionStream("deflate");
+        const writer = ds.writable.getWriter();
+        writer.write(compressed);
+        writer.close();
+        
+        const reader = ds.readable.getReader();
+        const chunks = [];
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) chunks.push(value);
+        }
+        
+        const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+        const decompressed = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const chunk of chunks) {
+            decompressed.set(chunk, offset);
+            offset += chunk.length;
+        }
+        
+        return new TextDecoder("utf-8").decode(decompressed);
     }
 
     async loadWorkflow(workflowJson, promptJson, filename) {
