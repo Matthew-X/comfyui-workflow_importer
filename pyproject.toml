@@ -28,8 +28,8 @@ Documentation = "https://github.com/Matthew-X/comfyui-workflow_importer/wiki"
 "Bug Tracker" = "https://github.com/Matthew-X/comfyui-workflow_importer/issues"
 
 [tool.comfy]
-PublisherId = ""
-DisplayName = "comfyui-workflow_importer"
+PublisherId = "herox"
+DisplayName = "Workflow Importer"
 Icon = ""
 includes = [] 
 # "requires-comfyui" = ">=1.0.0"  # ComfyUI version compatibility

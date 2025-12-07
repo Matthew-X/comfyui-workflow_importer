@@ -9,4 +9,8 @@ workflow import from images containing ComfyUI metadata.
 WEB_DIRECTORY = "web"
 
 
-__all__ = ["WEB_DIRECTORY"]
+# Required by ComfyUI even for UI-only extensions
+NODE_CLASS_MAPPINGS = {}
+NODE_DISPLAY_NAME_MAPPINGS = {}
+
+__all__ = ["WEB_DIRECTORY", "NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
