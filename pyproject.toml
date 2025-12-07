@@ -2,7 +2,6 @@
 name = "comfyui_workflow_importer"
 version = "1.0.0"
 description = "Import ComfyUI workflows from images containing embedded metadata."
-readme = "README.md"
 license = { file = "LICENSE" }
 
 [tool.comfy]
