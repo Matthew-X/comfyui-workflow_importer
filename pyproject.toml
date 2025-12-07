@@ -8,6 +8,6 @@ license = { file = "LICENSE" }
 Repository = "https://github.com/Matthew-X/comfyui-workflow_importer"
 
 [tool.comfy]
-PublisherId = "Matthew-X/comfyui-workflow_importer"
+PublisherId = "herox"
 DisplayName = "Workflow Importer"
-Tags = ["workflow", "import", "ui"]
+Icon = ""
