@@ -4,6 +4,9 @@ version = "1.0.0"
 description = "Import ComfyUI workflows from images containing embedded metadata."
 license = { file = "LICENSE" }
 
+[project.urls]
+Repository = "https://github.com/Matthew-X/comfyui-workflow_importer"
+
 [tool.comfy]
 PublisherId = "Matthew-X/comfyui-workflow_importer"
 DisplayName = "Workflow Importer"
