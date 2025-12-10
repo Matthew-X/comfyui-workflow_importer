@@ -85,3 +85,5 @@ When reporting bugs, please include:
 - Your OS and ComfyUI version.
 - How you installed the extension (Git / Manager).
 - Example image(s) or steps to reproduce.
+
+Note: This extension was created for use when ComfyUI's built-in workflow import is temporarily or long-term broken.
